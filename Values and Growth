@@ -59,15 +59,7 @@ INNER JOIN zip_growth AS growth
     ON fz.RegionID = growth.RegionID
 ORDER BY Dec_2025_forecast_value DESC;
 
---US median sales price by month over time
-SELECT
-    RegionType,
-    regionname,
-    monthyear,
-    median_existing_inv_price
-FROM median_existing_inv_price
-WHERE RegionType = 'country'
-ORDER by monthyear;
+
 
 
 
