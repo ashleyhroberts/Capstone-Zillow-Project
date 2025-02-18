@@ -1,0 +1,121 @@
+/* Home values by Year and Zip Code in a CTE and then add a percent
+ change from previous year column using LAG Window function partitioned by state
+  with an additional column for the percent change from previous year */
+WITH avg_home_values AS (
+    SELECT
+        State,
+        CountyName,
+        RegionName AS zip_code,
+        EXTRACT(YEAR FROM MonthYear) AS Year,
+        AVG(HomeValue) AS avg_value
+    FROM zip_zhvi
+    WHERE HomeValue IS NOT NULL
+    GROUP BY State, CountyName, RegionName, EXTRACT(YEAR FROM MonthYear)
+)
+SELECT
+    State,
+    CountyName,
+    zip_code,  
+    Year,
+    ROUND(avg_value, 0) AS avg_value,
+    -- Ensure first-year previous value is NULL per zip code
+    CASE 
+        WHEN LAG(avg_value) OVER (PARTITION BY zip_code ORDER BY Year) IS NULL 
+        THEN NULL
+        ELSE ROUND(LAG(avg_value) OVER (PARTITION BY zip_code ORDER BY Year), 0)
+    END AS prev_year_value,
+    -- Avoid divide-by-zero in percent change calculation
+    CASE 
+        WHEN LAG(avg_value) OVER (PARTITION BY zip_code ORDER BY Year) IS NULL 
+        THEN NULL
+        ELSE ROUND((avg_value - LAG(avg_value) OVER (PARTITION BY zip_code ORDER BY Year)) * 100 / 
+                   NULLIF(LAG(avg_value) OVER (PARTITION BY zip_code ORDER BY Year), 0), 1)
+    END AS percent_change_yoy
+FROM avg_home_values
+ORDER BY State, CountyName, zip_code, Year;
+
+/* Join zip_zhvi and zip_growth tables to get home values by zip code and 
+associated forecast growth rates plus a column calculating forecast value*/
+
+WITH filtered_zhvi AS (
+SELECT
+    RegionID,
+    State,
+    RegionName,
+    city,
+    homevalue
+FROM zip_zhvi AS zhvi
+WHERE MonthYear = '2024-12-31'
+)
+SELECT
+    fz.State,
+    fz.RegionName AS zip,
+    fz.city,
+    ROUND(fz.homevalue,0) AS Dec2024_home_value,
+    growth."12/31/2025" AS Dec_2025_growth_percent,
+    ROUND(fz.homevalue * (1 + growth."12/31/2025" / 100),0) AS Dec_2025_forecast_value
+FROM filtered_zhvi AS fz
+INNER JOIN zip_growth AS growth
+    ON fz.RegionID = growth.RegionID
+ORDER BY Dec_2025_forecast_value DESC;
+
+--US median sales price by month over time
+SELECT
+    RegionType,
+    regionname,
+    monthyear,
+    median_existing_inv_price
+FROM median_existing_inv_price
+WHERE RegionType = 'country'
+ORDER by monthyear;
+
+/* Join Inventory-for-sale (listings) table with Median Sales Price table. 
+Add columns for percent changes in listings and prices.
+2 CTEs and LAG Window Functions */
+
+/* Join Inventory-for-sale (listings) table with Median Sales Price table. 
+Add columns for percent changes in listings and prices.
+2 CTEs and LAG Window Functions */
+
+WITH years AS (
+    SELECT
+        inv.RegionID,
+        inv.Regionname,
+        inv.Statename,
+        EXTRACT (YEAR FROM inv.Monthyear) AS Year,
+        inv.num_listings,
+        eip.median_existing_inv_price AS med_price
+    FROM inventory AS inv
+    INNER JOIN median_existing_inv_price AS eip
+    ON inv.regionid = eip.regionid
+    AND inv.monthyear = eip.monthyear
+),
+sumlistings_and_avgprices AS (
+    SELECT 
+        Statename,
+        Year,
+        SUM(num_listings) AS sum_num_listings,
+        AVG(med_price) AS avg_med_price
+    FROM years
+    GROUP BY Statename, Year  
+)
+SELECT
+    Statename,
+    Year,
+    ROUND(LAG(sum_num_listings) OVER (PARTITION BY Statename ORDER BY YEAR),1) AS previous_year_listings,
+    ROUND(sum_num_listings,1) AS sum_num_listings_rounded,
+    ROUND(
+        (sum_num_listings - LAG(sum_num_listings) OVER (PARTITION BY Statename ORDER BY YEAR)) *100 /
+        LAG(sum_num_listings) OVER (PARTITION BY Statename ORDER BY YEAR),2
+        ) AS listings_percent_change,
+    ROUND(LAG(avg_med_price) OVER (PARTITION BY Statename ORDER BY YEAR),1) AS previous_med_price,
+    ROUND(avg_med_price,1) AS avg_med_price_rounded,
+    ROUND(
+        (avg_med_price - LAG(avg_med_price) OVER (PARTITION BY Statename ORDER BY YEAR)) *100 /
+        LAG(avg_med_price) OVER (PARTITION BY Statename ORDER BY YEAR),2
+        ) AS price_percent_change
+FROM sumlistings_and_avgprices
+ORDER BY Statename, Year;
+
+
+
