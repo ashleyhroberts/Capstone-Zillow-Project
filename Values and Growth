@@ -1,6 +1,5 @@
 /* Home values by Year and Zip Code in a CTE and then add a percent
- change from previous year column using LAG Window function partitioned by zip
-  with an additional column for the percent change from previous year */
+ change from previous year column using LAG Window function partitioned by zip */
 WITH avg_home_values AS (
     SELECT
         State,
